@@ -52,7 +52,7 @@ def on_received_string(receivedString):
             currentColorIndex = parse_float(receivedArray[2])
             showColor(currentColorIndex, False)
     if repeaterOn:
-        if receivedArray[0] == "T" or receivedArray[0] == "C":
+        if receivedArray[0] == "T" or receivedArray[0] == "S":
             basic.pause(100)
             radio.send_string("R" + receivedString)
 radio.on_received_string(on_received_string)
@@ -96,5 +96,6 @@ basic.pause(1000)
 basic.clear_screen()
 
 def on_forever():
-    pass
+    basic.pause(randint(4000, 6000))
+    showColor(currentColorIndex, True)
 basic.forever(on_forever)
