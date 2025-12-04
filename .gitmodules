@@ -1,0 +1,6 @@
+[submodule "software/classroom_trafficlights_light"]
+	path = software/classroom_trafficlights_light
+	url = https://github.com/NB-TUDelft/classroom_trafficlights_light
+[submodule "software/classroom_trafficlights_receiver"]
+	path = software/classroom_trafficlights_receiver
+	url = https://github.com/NB-TUDelft/classroom_trafficlights_receiver
