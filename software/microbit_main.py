@@ -169,6 +169,9 @@ basic.forever(on_forever)
 
 def on_data_received():
     global transmitter
+    if beta:
+        on_data_received_beta()
+        return
     transmitter = True
     radio.send_string(serial.read_line())
 serial.on_data_received(serial.delimiters(Delimiters.NEW_LINE), on_data_received)
@@ -242,11 +245,9 @@ def handle_message(msg):
 
     return True
 
-def dummy():
-    return
 
 def handle_msg_command(command):
-    global multi_buffers, handle_message, handle_msg_command, handle_beta_received, on_button_pressed_a_beta, on_button_pressed_b_beta, on_button_pressed_ab_beta, beta_forever_loop
+    global multi_buffers, handle_message, handle_beta_received, on_button_pressed_a_beta, on_button_pressed_b_beta, on_button_pressed_ab_beta, beta_forever_loop
 
     # Commands:
     # MULTI: allows longer messages by splitting into multiple parts
@@ -254,24 +255,12 @@ def handle_msg_command(command):
     #     Commands: CLEAR, APPEND <content>, NEXTMSG <type>, STOP
     # IF,<#id>,<cmd>: conditional execution based on device ID
     # RESET: resets the device, turns off beta mode
-    # EXEC,<cmd>: executes a command directly, in Python. OTA updates.
-    # DUMMY: runs dummy function. Easy target for testing EXEC.
 
     parts = command.split(",", 1)
-
-    if parts[0] == "EXEC":
-        if len(parts) < 2:
-            debug(104, "EXEC with no command")
-            return
-        exec(parts[1])
-        return
     
-    if parts[0] == "DUMMY":
-        dummy()
-        return
-
     if parts[0] == "RESET":
         control.reset()
+        debug(105, "RESET command failed to reset device")
         return
 
     if parts[0] == "IF":
@@ -328,3 +317,6 @@ def beta_forever_loop():
     # Example: heartbeat ping
     basic.pause(2000)
     radio.send_string("HB")
+
+def on_data_received_beta():
+    pass
