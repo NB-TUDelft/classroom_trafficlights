@@ -91,6 +91,12 @@ def on_received_string(receivedString):
         beta = True
         enter_beta_mode()
         return
+    if receivedString == "BEEP":
+        for _ in range(2):
+            music.play_tone(880, music.beat(BeatFraction.QUARTER))
+            basic.pause(100)
+            music.play_tone(660, music.beat(BeatFraction.QUARTER))
+        return
     if beta:
         handle_beta_received(receivedString)
         return

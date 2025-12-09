@@ -266,7 +266,7 @@ button:disabled {
 }
 .table-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
     gap: 0.9rem;
 }
 .table-card {
@@ -284,30 +284,26 @@ button:disabled {
     transform: translateY(-3px);
 }
 .table-card[data-color="green"] {
-    border: 1px solid rgba(87, 216, 107, 0.4);
-    box-shadow: 0 8px 18px rgba(87, 216, 107, 0.12);
+    background: var(--green);
+    color: #041207;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 18px rgba(87, 216, 107, 0.22);
 }
 .table-card[data-color="orange"] {
-    border: 1px solid rgba(255, 165, 52, 0.4);
-    box-shadow: 0 8px 18px rgba(255, 165, 52, 0.18);
+    background: var(--orange);
+    color: #2d1600;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 18px rgba(255, 165, 52, 0.28);
 }
 .table-card[data-color="red"] {
-    border: 1px solid rgba(255, 77, 77, 0.5);
-    box-shadow: 0 8px 22px rgba(255, 77, 77, 0.25);
+    background: var(--red);
+    color: #2d0202;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 22px rgba(255, 77, 77, 0.35);
 }
 .table-card strong {
     font-size: 1.5rem;
 }
-.badge {
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-.badge.green { background: rgba(87, 216, 107, 0.18); color: var(--green); }
-.badge.orange { background: rgba(255, 165, 52, 0.18); color: var(--orange); }
-.badge.red { background: rgba(255, 77, 77, 0.18); color: var(--red); }
 footer {
     display: flex;
     justify-content: space-between;
@@ -364,6 +360,7 @@ footer {
         <article class="control-card action-card">
             <span class="label">Quick Actions</span>
             <button id="resetAll" type="button">Reset All To Green</button>
+            <button id="beepNow" type="button">Beep</button>
             <small>Tap any table tile to cycle between green > orange > red.</small>
         </article>
         <article class="control-card red-card">
@@ -414,11 +411,49 @@ const startTableInput = document.getElementById('startTable');
 const endTableInput = document.getElementById('endTable');
 const applyRangeBtn = document.getElementById('applyRange');
 const resetAllBtn = document.getElementById('resetAll');
+const beepBtn = document.getElementById('beepNow');
 const redList = document.getElementById('redList');
 const COLOR_SEQUENCE = ['green', 'orange', 'red'];
 const NEXT_COLOR = { green: 'orange', orange: 'red', red: 'green' };
+const ALERT_COLORS = new Set(['orange', 'red']);
 let tables = new Map();
 let autoSerialPrompted = false;
+let audioCtx = null;
+
+function ensureAudioContext() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+    } catch (error) {
+        return null;
+    }
+}
+
+function playTone(ctx, freq, startTime, duration = 0.12, gainLevel = 0.18) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(gainLevel, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.02);
+}
+
+function beepAlert() {
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime + 0.01;
+    playTone(ctx, 880, now, 0.12);
+    playTone(ctx, 660, now + 0.16, 0.12);
+}
+
+function enteredAlert(prevColor, nextColor) {
+    if (!ALERT_COLORS.has(nextColor)) return false;
+    return !ALERT_COLORS.has(prevColor);
+}
 
 function upsertCard(data) {
     tables.set(data.table, data.color);
@@ -430,17 +465,25 @@ function upsertCard(data) {
         grid.appendChild(card);
     }
     card.dataset.color = data.color;
-    card.innerHTML = `<strong>${data.table}</strong><span class="badge ${data.color}">${data.color}</span>`;
+    card.innerHTML = `<strong>${data.table}</strong>`;
 }
 
 function renderSnapshot(payload) {
+    const previous = new Map(tables);
     grid.innerHTML = '';
     tables.clear();
-    payload.tables.forEach(upsertCard);
+    let shouldBeep = false;
+    payload.tables.forEach((entry) => {
+        if (!shouldBeep && enteredAlert(previous.get(entry.table), entry.color)) {
+            shouldBeep = true;
+        }
+        upsertCard(entry);
+    });
     updateCounts(payload.counts);
     updateRangeFields(payload.range);
     updateRedList(payload.redDurations);
     stampUpdate();
+    if (shouldBeep) beepAlert();
 }
 
 function updateCounts(counts) {
@@ -602,10 +645,12 @@ async function sendTableUpdate(tableId, color) {
         if (!response.ok || !payload) {
             throw new Error(payload?.detail || 'Failed to update table');
         }
+        const prevColor = tables.get(tableId);
         upsertCard(payload.table);
         updateCounts(payload.counts);
         updateRedList(payload.redDurations);
         stampUpdate();
+        if (enteredAlert(prevColor, payload.table.color)) beepAlert();
     } catch (error) {
         alert(error.message || 'Unable to update the table.');
     }
@@ -668,10 +713,12 @@ function connectSocket() {
         if (payload.type === 'snapshot') {
             renderSnapshot(payload);
         } else if (payload.type === 'table_update') {
+            const prevColor = tables.get(payload?.table?.table);
             upsertCard(payload.table);
             updateCounts(payload.counts);
             updateRedList(payload.redDurations);
             stampUpdate();
+            if (enteredAlert(prevColor, payload.table.color)) beepAlert();
         }
     });
     socket.addEventListener('error', () => {
@@ -707,6 +754,9 @@ if (applyRangeBtn) {
 }
 if (resetAllBtn) {
     resetAllBtn.addEventListener('click', resetAllTables);
+}
+if (beepBtn) {
+    beepBtn.addEventListener('click', () => beepAlert());
 }
 if (grid) {
     grid.addEventListener('click', (event) => {
