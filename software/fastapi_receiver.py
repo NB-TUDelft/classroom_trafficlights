@@ -304,6 +304,29 @@ button:disabled {
 .table-card strong {
     font-size: 1.5rem;
 }
+.mute-btn {
+    background: transparent;
+    border: none;
+    width: 1.2rem;
+    height: 1.2rem;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    color: currentColor;
+}
+.mute-btn:hover {
+    opacity: 1;
+}
+.mute-btn svg {
+    width: 100%;
+    height: 100%;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
 footer {
     display: flex;
     justify-content: space-between;
@@ -360,7 +383,7 @@ footer {
         <article class="control-card action-card">
             <span class="label">Quick Actions</span>
             <button id="resetAll" type="button">Reset All To Green</button>
-            <button id="beepNow" type="button">Beep</button>
+            <button id="beepNow" type="button">Beeps On</button>
             <small>Tap any table tile to cycle between green > orange > red.</small>
         </article>
         <article class="control-card red-card">
@@ -417,6 +440,8 @@ const COLOR_SEQUENCE = ['green', 'orange', 'red'];
 const NEXT_COLOR = { green: 'orange', orange: 'red', red: 'green' };
 const ALERT_COLORS = new Set(['orange', 'red']);
 let tables = new Map();
+let mutedTables = new Set();
+let beepsEnabled = true;
 let autoSerialPrompted = false;
 let audioCtx = null;
 
@@ -443,11 +468,39 @@ function playTone(ctx, freq, startTime, duration = 0.12, gainLevel = 0.18) {
 }
 
 function beepAlert() {
+    if (!beepsEnabled) return;
     const ctx = ensureAudioContext();
     if (!ctx) return;
     const now = ctx.currentTime + 0.01;
     playTone(ctx, 880, now, 0.12);
     playTone(ctx, 660, now + 0.16, 0.12);
+}
+
+function toggleTableMute(tableId) {
+    if (mutedTables.has(tableId)) {
+        mutedTables.delete(tableId);
+    } else {
+        mutedTables.add(tableId);
+    }
+    updateMuteButton(tableId);
+}
+
+function updateMuteButton(tableId) {
+    const card = document.querySelector(`[data-table="${tableId}"]`);
+    if (!card) return;
+    const btn = card.querySelector('.mute-btn');
+    if (!btn) return;
+    const isMuted = mutedTables.has(tableId);
+    btn.innerHTML = isMuted ? getMutedSVG() : getUnmutedSVG();
+    btn.title = isMuted ? 'Beep enabled for this table' : 'Beep disabled for this table';
+}
+
+function getMutedSVG() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4v-4"></path><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>';
+}
+
+function getUnmutedSVG() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
 }
 
 function enteredAlert(prevColor, nextColor) {
@@ -465,7 +518,15 @@ function upsertCard(data) {
         grid.appendChild(card);
     }
     card.dataset.color = data.color;
-    card.innerHTML = `<strong>${data.table}</strong>`;
+    const isMuted = mutedTables.has(data.table);
+    card.innerHTML = `<strong>${data.table}</strong><button class="mute-btn" title="${isMuted ? 'Beep enabled for this table' : 'Beep disabled for this table'}">${isMuted ? getMutedSVG() : getUnmutedSVG()}</button>`;
+    const muteBtn = card.querySelector('.mute-btn');
+    if (muteBtn) {
+        muteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleTableMute(data.table);
+        });
+    }
 }
 
 function renderSnapshot(payload) {
@@ -474,7 +535,7 @@ function renderSnapshot(payload) {
     tables.clear();
     let shouldBeep = false;
     payload.tables.forEach((entry) => {
-        if (!shouldBeep && enteredAlert(previous.get(entry.table), entry.color)) {
+        if (!shouldBeep && enteredAlert(previous.get(entry.table), entry.color) && !mutedTables.has(entry.table)) {
             shouldBeep = true;
         }
         upsertCard(entry);
@@ -650,7 +711,7 @@ async function sendTableUpdate(tableId, color) {
         updateCounts(payload.counts);
         updateRedList(payload.redDurations);
         stampUpdate();
-        if (enteredAlert(prevColor, payload.table.color)) beepAlert();
+        if (enteredAlert(prevColor, payload.table.color) && !mutedTables.has(tableId)) beepAlert();
     } catch (error) {
         alert(error.message || 'Unable to update the table.');
     }
@@ -718,7 +779,7 @@ function connectSocket() {
             updateCounts(payload.counts);
             updateRedList(payload.redDurations);
             stampUpdate();
-            if (enteredAlert(prevColor, payload.table.color)) beepAlert();
+            if (enteredAlert(prevColor, payload.table.color) && !mutedTables.has(payload?.table?.table)) beepAlert();
         }
     });
     socket.addEventListener('error', () => {
@@ -756,7 +817,10 @@ if (resetAllBtn) {
     resetAllBtn.addEventListener('click', resetAllTables);
 }
 if (beepBtn) {
-    beepBtn.addEventListener('click', () => beepAlert());
+    beepBtn.addEventListener('click', () => {
+        beepsEnabled = !beepsEnabled;
+        beepBtn.textContent = beepsEnabled ? 'Beeps On' : 'Beeps Off';
+    });
 }
 if (grid) {
     grid.addEventListener('click', (event) => {
